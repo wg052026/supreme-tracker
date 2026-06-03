@@ -80,7 +80,7 @@ header{
   padding:4px 9px;border-radius:6px;font-size:11px;white-space:nowrap}
 .wchip:hover{border-color:var(--acc);color:var(--txt)}
 .wchip:focus{outline:none}
-.wchip.latest{border-color:var(--acc);color:var(--txt);font-weight:700}
+.wchip.latest{color:var(--txt);font-weight:700}
 .card{
   background:var(--panel);border:1px solid var(--line);border-radius:12px;
   overflow:hidden;display:flex;flex-direction:column;position:relative;
@@ -133,19 +133,21 @@ header{
 .sec-head .sub{color:var(--mut);font-size:11.5px}
 .empty{color:var(--mut);font-size:12px;padding:10px 2px;border:1px dashed var(--line);border-radius:8px;text-align:center}
 .pick{
-  display:flex;gap:9px;align-items:center;background:var(--panel2);
+  display:flex;flex-direction:column;gap:7px;background:var(--panel2);
   border:1px solid var(--line);border-radius:9px;padding:7px;margin-bottom:7px;cursor:grab
 }
 .pick.drag{opacity:.4}
+.pick-row{display:flex;gap:9px;align-items:center}
 .pick img{width:42px;height:42px;object-fit:cover;border-radius:6px;background:#fff;flex:none}
 .pick .pn{flex:1;min-width:0;font-size:12px;line-height:1.3;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pick .pchk{accent-color:var(--acc);width:15px;height:15px;flex:none}
-.pick .ord{display:flex;flex-direction:column;gap:2px;flex:none}
-.pick .ord button{width:22px;height:18px;background:var(--chip);border:1px solid var(--line);
-  color:var(--txt);border-radius:4px;font-size:10px;line-height:1;padding:0}
 .pick .del{background:none;border:none;color:var(--mut);font-size:18px;flex:none;padding:0 2px}
 .pick .del:hover{color:var(--acc)}
+.pnote{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--txt);
+  border-radius:7px;padding:6px 8px;font-size:11.5px;font-family:inherit}
+.pnote::placeholder{color:var(--mut)}
+.pnote:focus{outline:none;border-color:var(--acc2);cursor:text}
 .bulk{display:flex;gap:8px;margin-bottom:10px}
 .bulk button{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   border-radius:8px;padding:7px;font-size:11.5px}
@@ -237,11 +239,13 @@ function kreamUrl(name){
 
 const LATEST = DATA.latestWeek;
 const STORE_KEY = "supreme26ss_picks_v1";
+const NOTES_KEY = "supreme26ss_notes_v1";
 
 let state = {
   cat: "ALL",
   unreleasedOnly: false,
   picks: loadPicks(),     // array of item ids, in order
+  notes: loadNotes(),     // { id: "메모" }
   selected: new Set(),    // ids checked for bulk delete
 };
 
@@ -251,6 +255,13 @@ function loadPicks(){
 }
 function savePicks(){
   try{ localStorage.setItem(STORE_KEY, JSON.stringify(state.picks)); }catch(e){}
+}
+function loadNotes(){
+  try{ return JSON.parse(localStorage.getItem(NOTES_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveNotes(){
+  try{ localStorage.setItem(NOTES_KEY, JSON.stringify(state.notes)); }catch(e){}
 }
 
 const byId = {};
@@ -458,11 +469,15 @@ function sectionHtml(title, list, showOrder){
   else{
     body = list.map(it=>{
       const checked = state.selected.has(it.id)?'checked':'';
+      const note = state.notes[it.id] || "";
       return `<div class="pick" draggable="${showOrder?'true':'false'}" data-pid="${it.id}">
-        <input type="checkbox" class="pchk" data-chk="${it.id}" ${checked}>
-        <img src="${it.img}" alt="">
-        <div class="pn">${esc(it.name)}</div>
-        <button class="del" data-del="${it.id}">×</button>
+        <div class="pick-row">
+          <input type="checkbox" class="pchk" data-chk="${it.id}" ${checked}>
+          <img src="${it.img}" alt="">
+          <div class="pn">${esc(it.name)}</div>
+          <button class="del" data-del="${it.id}">×</button>
+        </div>
+        <input type="text" class="pnote" data-note="${it.id}" value="${esc(note)}" placeholder="메모 추가…" maxlength="120">
       </div>`;
     }).join("");
   }
@@ -477,6 +492,18 @@ function bindPickEvents(){
   });
   document.querySelectorAll("[data-chk]").forEach(c=>c.onchange=()=>{
     if(c.checked) state.selected.add(c.dataset.chk); else state.selected.delete(c.dataset.chk);
+  });
+  // 메모 입력 (포커스 유지를 위해 render 없이 저장)
+  document.querySelectorAll("[data-note]").forEach(inp=>{
+    inp.oninput=()=>{
+      const id=inp.dataset.note, v=inp.value;
+      if(v.trim()) state.notes[id]=v; else delete state.notes[id];
+      saveNotes();
+    };
+    // 메모 입력란에서 드래그/체크가 안 먹히게 클릭 전파 차단
+    inp.onmousedown=e=>e.stopPropagation();
+    inp.onfocus=()=>{ const p=inp.closest(".pick"); if(p) p.setAttribute("draggable","false"); };
+    inp.onblur=()=>{ const p=inp.closest(".pick"); if(p) p.setAttribute("draggable","true"); };
   });
 
   // drag reorder (전체 픽 섹션)
@@ -542,7 +569,7 @@ document.getElementById("mvBottom").onclick=()=>moveSelected("bottom");
 
 /* ---------- Import / Export ---------- */
 document.getElementById("btnExport").onclick=()=>{
-  const blob=new Blob([JSON.stringify({picks:state.picks},null,2)],{type:"application/json"});
+  const blob=new Blob([JSON.stringify({picks:state.picks,notes:state.notes},null,2)],{type:"application/json"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);a.download="supreme26ss_picks.json";a.click();
 };
@@ -552,7 +579,9 @@ document.getElementById("fileImport").onchange=e=>{
   const r=new FileReader();
   r.onload=()=>{try{
     const o=JSON.parse(r.result);
-    if(Array.isArray(o.picks)){state.picks=o.picks.filter(id=>byId[id]);savePicks();render();}
+    if(Array.isArray(o.picks)){state.picks=o.picks.filter(id=>byId[id]);savePicks();}
+    if(o.notes && typeof o.notes==="object"){state.notes=o.notes;saveNotes();}
+    render();
   }catch(err){alert("파일을 읽을 수 없습니다.");}};
   r.readAsText(f);
 };
