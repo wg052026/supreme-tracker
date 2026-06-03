@@ -51,6 +51,9 @@ header{
   color:var(--mut);font-size:12.5px;user-select:none
 }
 .toggle input{accent-color:var(--acc);width:15px;height:15px}
+.sortsel{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  border-radius:8px;padding:6px 10px;font-size:12px;margin-left:8px}
+.sortsel:hover{border-color:var(--acc)}
 
 /* ===== Layout ===== */
 .wrap{display:flex;gap:0;align-items:flex-start}
@@ -61,8 +64,20 @@ header{
   background:var(--panel);padding:16px 14px 40px
 }
 
-/* ===== Grid ===== */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px}
+/* ===== Grid & Sections ===== */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px}
+.wsec{margin-bottom:30px;scroll-margin-top:120px}
+.wsec-head{display:flex;align-items:baseline;gap:10px;margin:0 0 12px;
+  padding-bottom:8px;border-bottom:1px solid var(--line)}
+.wsec-head h3{margin:0;font-size:16px;font-weight:800;letter-spacing:-.3px}
+.wsec-head span{color:var(--mut);font-size:12px}
+.weekjump{display:flex;gap:6px;padding:9px 18px;flex-wrap:wrap;align-items:center;
+  border-bottom:1px solid var(--line);background:var(--panel)}
+.weekjump .jl{color:var(--mut);font-size:11.5px;margin-right:2px}
+.wchip{background:var(--chip);border:1px solid var(--line);color:var(--mut);
+  padding:4px 9px;border-radius:6px;font-size:11px;white-space:nowrap}
+.wchip:hover{border-color:var(--acc);color:var(--txt)}
+.wchip.latest{border-color:var(--acc);color:var(--txt);font-weight:700}
 .card{
   background:var(--panel);border:1px solid var(--line);border-radius:12px;
   overflow:hidden;display:flex;flex-direction:column;position:relative;
@@ -71,7 +86,17 @@ header{
 .card:hover{border-color:var(--acc);transform:translateY(-2px)}
 .card.picked{border-color:var(--ok)}
 .thumb{aspect-ratio:1/1;background:#fff;position:relative;cursor:pointer;overflow:hidden}
-.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block;
+  position:absolute;inset:0;opacity:0;transition:opacity .25s}
+.thumb img.on{opacity:1}
+.dots{position:absolute;bottom:7px;left:0;right:0;display:flex;justify-content:center;gap:4px;
+  pointer-events:none;opacity:0;transition:opacity .2s;z-index:2}
+.card:hover .dots{opacity:1}
+.dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.45);
+  box-shadow:0 0 2px rgba(0,0,0,.6)}
+.dots i.on{background:#fff}
+.price{font-size:12px;font-weight:700;color:var(--ok)}
+.price.tba{color:var(--mut);font-weight:500}
 .badge{
   position:absolute;top:7px;left:7px;font-size:10px;font-weight:800;
   padding:3px 7px;border-radius:5px;letter-spacing:.3px
@@ -136,14 +161,15 @@ header{
   .tabs button.on{color:var(--txt);border-bottom-color:var(--acc)}
   .gallery,.aside{display:none}
   .gallery.show,.aside.show{display:block}
-  .grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:11px}
+  .cards{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:11px}
+  .weekjump{padding:8px 12px}
 }
 </style>
 </head>
 <body>
 <header>
   <div class="bar">
-    <div class="logo"><b>Supreme</b> 26S/S Pick Board</div>
+    <div class="logo"><b>Supreme</b> <span id="logoSeason">Pick Board</span></div>
     <div class="meta-line" id="metaLine"></div>
     <div class="spacer"></div>
     <div class="io-btns">
@@ -153,6 +179,7 @@ header{
     </div>
   </div>
   <div class="filters" id="filters"></div>
+  <div class="weekjump" id="weekJump" style="display:none"></div>
 </header>
 
 <div class="tabs">
@@ -161,7 +188,7 @@ header{
 </div>
 
 <div class="wrap">
-  <main class="gallery show" id="gallery"><div class="grid" id="grid"></div></main>
+  <main class="gallery show" id="gallery"><div id="grid"></div></main>
   <aside class="aside" id="aside">
     <div class="bulk">
       <button id="selAll">전체선택</button>
@@ -175,19 +202,15 @@ header{
 </div>
 
 <script type="module">
-const DATA = await (async()=>{
-  const r = await fetch('data/data.json', {cache:'no-store'});
-  if(!r.ok) throw new Error('data load failed');
-  return await r.json();
-})();
+const DATA = await (async()=>{ const r=await fetch("data/data.json",{cache:"no-store"}); if(!r.ok) throw new Error("data load failed"); return await r.json(); })();
 
-/* ---------- KREAM 검색어: Supreme 접두어 + 26ss 둘 다 유지 ---------- */
+/* ---------- KREAM 검색어: Supreme 접두어 + 시즌 태그(26ss/26fw 자동) 둘 다 유지 ---------- */
 function kreamUrl(name){
   let s=(name||"").replace(/[®™]/g,"").replace(/\s*\/\s*/g," ");
   s=s.replace(/\bZip Up\b/ig,"").replace(/\bS S\b/g,"").replace(/\bL S\b/g,"");
   s=s.replace(/\s+/g," ").trim();
   if(!/^supreme\b/i.test(s)) s="Supreme "+s;
-  s=s+" 26ss";
+  s=s+" "+(DATA.kreamTag||"26ss");
   return "https://kream.co.kr/search?tab=products&keyword="+encodeURIComponent(s);
 }
 
@@ -196,8 +219,7 @@ const STORE_KEY = "supreme26ss_picks_v1";
 
 let state = {
   cat: "ALL",
-  weekOnly: false,
-  showReleased: false,
+  unreleasedOnly: false,
   picks: loadPicks(),     // array of item ids, in order
   selected: new Set(),    // ids checked for bulk delete
 };
@@ -218,59 +240,125 @@ function buildFilters(){
   const f = document.getElementById("filters");
   const cats = ["ALL", ...DATA.cats];
   let html = "";
-  html += `<button class="chip week ${state.weekOnly?'on':''}" data-week="1">🔥 금주 W${LATEST}</button>`;
   cats.forEach(c=>{
     html += `<button class="chip ${state.cat===c?'on':''}" data-cat="${c}">${c==='ALL'?'전체':c}</button>`;
   });
-  html += `<label class="toggle"><input type="checkbox" id="relToggle" ${state.showReleased?'checked':''}> 발매된 것도 보기</label>`;
+  html += `<label class="toggle"><input type="checkbox" id="relToggle" ${state.unreleasedOnly?'checked':''}> 미발매만 보기</label>`;
   f.innerHTML = html;
 
   f.querySelectorAll("[data-cat]").forEach(b=>b.onclick=()=>{state.cat=b.dataset.cat;render();});
-  f.querySelector("[data-week]").onclick=()=>{state.weekOnly=!state.weekOnly;render();};
-  document.getElementById("relToggle").onchange=e=>{state.showReleased=e.target.checked;render();};
+  document.getElementById("relToggle").onchange=e=>{state.unreleasedOnly=e.target.checked;render();};
+
+  // 주차 바로가기 칩 (전체 보기일 때만)
+  const jump = document.getElementById("weekJump");
+  if(!state.unreleasedOnly){
+    const weeks = [...new Set(DATA.items.filter(x=>x.released).map(x=>x.week))].sort((a,b)=>b-a);
+    jump.style.display = "flex";
+    jump.innerHTML = `<span class="jl">바로가기:</span>`
+      + `<button class="wchip" data-jump="unreleased">미발매 ${DATA.counts.unreleased}</button>`
+      + weeks.map(w=>{
+          const n = DATA.items.filter(x=>x.released&&x.week===w).length;
+          return `<button class="wchip ${w===LATEST?'latest':''}" data-jump="w${w}">W${w} ${n}</button>`;
+        }).join("");
+    jump.querySelectorAll("[data-jump]").forEach(b=>b.onclick=()=>{
+      const el=document.getElementById("sec-"+b.dataset.jump);
+      if(el) el.scrollIntoView({behavior:"smooth",block:"start"});
+    });
+  }else{
+    jump.style.display = "none";
+    jump.innerHTML = "";
+  }
 }
 
 /* ---------- Gallery ---------- */
-function visibleItems(){
+function priceNum(p){ const m=(p||"").match(/\d+/); return m?parseInt(m[0],10):null; }
+
+function filteredItems(){
   let list = DATA.items.slice();
   if(state.cat!=="ALL") list = list.filter(x=>x.cat===state.cat);
-  if(state.weekOnly) list = list.filter(x=>x.released && x.week===LATEST);
-  else if(!state.showReleased) list = list.filter(x=>!x.released);
-  // 정렬: 미발매 먼저, 그 다음 발매됨 주차 내림차순
-  list.sort((a,b)=>{
-    if(a.released!==b.released) return a.released?1:-1;
-    if(!a.released) return 0;
-    return (b.week||0)-(a.week||0);
-  });
+  if(state.unreleasedOnly) list = list.filter(x=>!x.released);
   return list;
 }
 
-function renderGallery(){
-  const grid = document.getElementById("grid");
-  const list = visibleItems();
-  const pset = new Set(state.picks);
-  grid.innerHTML = list.map(it=>{
-    const picked = pset.has(it.id);
-    const badge = it.released
-      ? `<span class="badge wk ${it.week===LATEST?'hot':''}">W${it.week}</span>`
-      : `<span class="badge coming">예정</span>`;
-    return `<div class="card ${picked?'picked':''}" data-id="${it.id}">
-      <div class="thumb" data-url="${it.url}">
-        ${badge}
-        <img loading="lazy" src="${it.img}" alt="${esc(it.name)}">
+function cardHtml(it, pset){
+  const picked = pset.has(it.id);
+  const badge = it.released
+    ? `<span class="badge wk ${it.week===LATEST?'hot':''}">W${it.week}</span>`
+    : `<span class="badge coming">예정</span>`;
+  const imgs = (it.imgs && it.imgs.length ? it.imgs : [it.img]).slice(0,6);
+  const imgTags = imgs.map((u,idx)=>`<img class="${idx===0?'on':''}" loading="lazy" src="${u}" alt="${esc(it.name)}">`).join("");
+  const dots = imgs.length>1 ? `<div class="dots">${imgs.map((_,idx)=>`<i class="${idx===0?'on':''}"></i>`).join("")}</div>` : "";
+  const priceHtml = it.price ? `<span class="price">${it.price}</span>` : `<span class="price tba">가격 미정</span>`;
+  return `<div class="card ${picked?'picked':''}" data-id="${it.id}">
+      <div class="thumb" data-url="${it.url}" data-imgs="${imgs.length}">
+        ${badge}${imgTags}${dots}
         <button class="add" data-add="${it.id}" title="픽 추가/제거">${picked?'✓':'+'}</button>
       </div>
       <div class="cbody">
         <div class="cname">${esc(it.name)}</div>
-        <div class="ccat">${it.cat}${it.price?' · '+it.price:''}</div>
+        <div class="ccat">${it.cat} · ${priceHtml}</div>
         <a class="kream-btn" href="${kreamUrl(it.name)}" target="_blank" rel="noopener">KREAM 검색</a>
       </div>
     </div>`;
-  }).join("") || `<div class="empty">조건에 맞는 아이템이 없습니다.</div>`;
+}
 
+function renderGallery(){
+  const grid = document.getElementById("grid");
+  const list = filteredItems();
+  const pset = new Set(state.picks);
+
+  if(!list.length){ grid.innerHTML = `<div class="empty">조건에 맞는 아이템이 없습니다.</div>`; bindGalleryEvents(); return; }
+
+  let html = "";
+  if(state.unreleasedOnly){
+    // 미발매만: 단일 섹션
+    html = secBlock("unreleased", `Left To Drop · 미발매`, list.length, list, pset);
+  }else{
+    // 전체: 섹션 분할 (미발매 → 주차 내림차순)
+    const un = list.filter(x=>!x.released);
+    if(un.length){
+      html += secBlock("unreleased", `Left To Drop · 미발매`, un.length, un, pset);
+    }
+    const weeks = [...new Set(list.filter(x=>x.released).map(x=>x.week))].sort((a,b)=>b-a);
+    weeks.forEach(w=>{
+      const wi = list.filter(x=>x.released && x.week===w);
+      const label = `Week ${w}` + (w===LATEST?` · 최신`:``);
+      html += secBlock("w"+w, label, wi.length, wi, pset);
+    });
+  }
+  grid.innerHTML = html;
+  bindGalleryEvents();
+}
+
+function secBlock(id, title, count, items, pset){
+  return `<section class="wsec" id="sec-${id}">
+    <div class="wsec-head"><h3>${title}</h3><span>${count}개</span></div>
+    <div class="cards">${items.map(it=>cardHtml(it,pset)).join("")}</div>
+  </section>`;
+}
+
+function bindGalleryEvents(){
+  const grid = document.getElementById("grid");
   grid.querySelectorAll(".thumb").forEach(t=>{
     t.onclick=e=>{ if(e.target.closest(".add"))return; window.open(t.dataset.url,"_blank"); };
-    t.ondblclick=()=>{}; // 단일 클릭은 상세, 추가는 + 버튼
+    const imgs=[...t.querySelectorAll("img")];
+    const dots=[...t.querySelectorAll(".dots i")];
+    if(imgs.length>1){
+      let idx=0, timer=null;
+      const show=i=>{
+        imgs[idx].classList.remove("on"); if(dots[idx])dots[idx].classList.remove("on");
+        idx=(i+imgs.length)%imgs.length;
+        imgs[idx].classList.add("on"); if(dots[idx])dots[idx].classList.add("on");
+      };
+      const card=t.closest(".card");
+      card.addEventListener("mouseenter",()=>{ timer=setInterval(()=>show(idx+1),650); });
+      card.addEventListener("mouseleave",()=>{ clearInterval(timer); show(0); });
+      t.addEventListener("mousemove",e=>{
+        const r=t.getBoundingClientRect();
+        const seg=Math.floor((e.clientX-r.left)/(r.width/imgs.length));
+        if(seg!==idx && seg>=0 && seg<imgs.length){ clearInterval(timer); show(seg); }
+      });
+    }
   });
   grid.querySelectorAll("[data-add]").forEach(b=>b.onclick=e=>{e.stopPropagation();togglePick(b.dataset.add);});
 }
@@ -285,13 +373,13 @@ function togglePick(id){
 /* ---------- Picks panel ---------- */
 function renderPicks(){
   const items = state.picks.map(id=>byId[id]).filter(Boolean);
-  const week = items.filter(x=>x.released && x.week===LATEST);
-  const rest = items.filter(x=>!(x.released && x.week===LATEST));
 
-  document.getElementById("secWeek").innerHTML = sectionHtml(`🔥 금주 W${LATEST} 픽`, week);
-  document.getElementById("secAll").innerHTML  = sectionHtml(`전체 픽`, rest, true);
+  document.getElementById("secWeek").innerHTML = "";
+  document.getElementById("secAll").innerHTML  = sectionHtml(`내 픽`, items, true);
 
-  document.getElementById("grandTotal").textContent = items.length+"개";
+  const total = items.reduce((s,x)=>s+(priceNum(x.price)||0),0);
+  document.getElementById("grandTotal").textContent =
+    items.length+"개" + (total?` · ~$${total}`:"");
   document.getElementById("tabCount").textContent = items.length?`(${items.length})`:"";
 
   bindPickEvents();
@@ -395,8 +483,11 @@ function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">"
 
 function render(){ buildFilters(); renderGallery(); renderPicks(); }
 
+document.getElementById("logoSeason").textContent =
+  (DATA.kreamTag ? DATA.kreamTag.replace(/(\d\d)(ss|fw)/,(m,y,s)=>y+(s==="ss"?"S/S":"F/W")) : "") + " Pick Board";
+
 document.getElementById("metaLine").textContent =
-  `${DATA.counts.unreleased+DATA.counts.released}개 · 미발매 ${DATA.counts.unreleased} / 발매 ${DATA.counts.released} · 최신 W${LATEST} · ${DATA.updated}`;
+  `${(DATA.seasonLabel||"")} · ${DATA.counts.unreleased+DATA.counts.released}개 · 미발매 ${DATA.counts.unreleased} / 발매 ${DATA.counts.released} · 최신 W${LATEST} · ${DATA.updated}`;
 
 render();
 </script>

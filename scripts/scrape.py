@@ -1,17 +1,44 @@
 #!/usr/bin/env python3
 """
-Supreme 26S/S data scraper.
-Fetches the full season (released items by week) + left-to-drop (unreleased)
-from supremedroplist.com and writes data/data.json for the board.
+Supreme 26S/S data scraper (v2).
+- Released items by week (1..20) + left-to-drop (unreleased) from supremedroplist.com
+- Prices: parsed per-card from week pages (released items only)
+- Images: multiple images per item pulled from each item's detail page (for hover preview)
+Writes data/data.json for the board.
 
 Run: python scripts/scrape.py
 """
 import re, html, json, sys, time, urllib.request, concurrent.futures
 from pathlib import Path
 
-SEASON = "springsummer-2026"
 BASE = "https://supremedroplist.com"
 OUT = Path(__file__).resolve().parent.parent / "data" / "data.json"
+
+SEASON_FALLBACK = "springsummer-2026"  # used only if auto-detect fails
+
+
+def detect_season():
+    """Find the currently-active season from the homepage.
+    The live season uses a long slug (springsummer-YYYY / fallwinter-YYYY)
+    and is the only one with /week-N links. Returns (slug, kream_tag, label)."""
+    try:
+        h = fetch(BASE + "/")
+    except Exception:
+        h = ""
+    # season that has week links = the one in progress
+    wk = re.findall(r'/season/((?:springsummer|fallwinter)-\d{4})/week-\d+', h)
+    cand = wk[0] if wk else None
+    if not cand:
+        longs = re.findall(r'/season/((?:springsummer|fallwinter)-\d{4})', h)
+        cand = max(set(longs), key=longs.count) if longs else SEASON_FALLBACK
+    m = re.match(r'(springsummer|fallwinter)-(\d{4})', cand)
+    if m:
+        sec, year = m.group(1), m.group(2)
+        yy = year[2:]
+        tag = f"{yy}ss" if sec == "springsummer" else f"{yy}fw"
+        label = ("Spring/Summer " if sec == "springsummer" else "Fall/Winter ") + year
+        return cand, tag, label
+    return SEASON_FALLBACK, "26ss", "Spring/Summer 2026"
 
 CAT_ORDER = ["Jackets", "Shirts", "Tops/Sweaters", "Sweatshirts", "Pants",
              "Shorts", "T-Shirts", "Hats", "Bags", "Accessories", "Shoes", "Skate"]
@@ -38,15 +65,19 @@ def fetch(url, tries=3):
 
 def clean_name(name):
     n = name.strip()
-    n = re.sub(r'\s*-\s*[A-Z][a-zA-Z]+$', '', n)              # " - Milan"
-    n = re.sub(r'\s+(Realtree®?.*|Mossy Oak®?.*|Country DNA Camo.*)$', '', n)
+    orig = n
+    # drop a trailing duplicated colourway tail like "... Mossy Oak® Country DNA"
+    n = re.sub(r'\s+(Mossy Oak®?|Realtree®?)\s+(Country\s+DNA.*|Camo.*)$', '', n, flags=re.I).strip()
+    # strip trailing colour words, but never reduce below 2 words / 6 chars
     for _ in range(3):
         m = re.search(r'\s+(' + '|'.join(map(re.escape, COLOR_WORDS)) + r')$', n)
-        if m:
-            n = n[:m.start()].strip()
-        else:
+        if not m:
             break
-    return n
+        cand = n[:m.start()].strip()
+        if len(cand) < 6 or len(cand.split()) < 2:
+            break
+        n = cand
+    return n or orig
 
 
 def guess_cat(name):
@@ -65,44 +96,90 @@ def guess_cat(name):
     return "Accessories"
 
 
-def parse_cards(htmltext):
-    """Return list of {name,url,img} from anchors to /items/ in a page."""
+IMG_RE = re.compile(r'(https://supremedroplist\.com/images/item-images/media/[^\s"\'<>]+?\.webp)')
+ANCHOR_RE = re.compile(r'href="(/items/[^"]+-ss26)"')
+
+
+def slug_from_url(url):
+    m = re.search(r'/items/([^"/]+)-ss26', url)
+    return m.group(1) if m else ""
+
+
+def parse_page_cards(htmltext):
+    """Split a season/week page into per-item cards (anchor to next anchor).
+    Returns list of {slug,url,name,img,price}."""
+    starts = [m.start() for m in ANCHOR_RE.finditer(htmltext)]
+    starts.append(len(htmltext))
     out = []
-    for m in re.finditer(r'<a[^>]+href="(/items/[^"]+)"[^>]*>(.*?)</a>', htmltext, flags=re.S):
-        href, inner = m.group(1), m.group(2)
-        am = re.search(r'alt="([^"]+)"', inner)
+    seen = set()
+    for i in range(len(starts) - 1):
+        block = htmltext[starts[i]:starts[i + 1]]
+        am = ANCHOR_RE.search(block)
         if not am:
             continue
-        name = html.unescape(am.group(1)).replace("&#38;", "&").strip()
-        if not name or name.startswith("Spring/Summer 2026") or "banner" in name.lower():
+        href = am.group(1)
+        url = BASE + href
+        slug = slug_from_url(url)
+        if not slug or slug in seen:
             continue
-        im = re.search(r'(https://supremedroplist\.com/images/item-images/[^\s"]+?\.webp)', inner)
+        # name: prefer alt text, else line-clamp paragraph
+        nm = re.search(r'alt="([^"]+)"', block)
+        if nm:
+            name = html.unescape(nm.group(1)).strip()
+        else:
+            pm = re.search(r'line-clamp-2[^>]*>\s*([^<]+?)\s*</p>', block)
+            name = html.unescape(pm.group(1)).strip() if pm else ""
+        if not name or name.lower().startswith("spring/summer"):
+            continue
+        im = IMG_RE.search(block)
         if not im:
             continue
-        out.append({"name": name, "url": BASE + href, "img": im.group(1).split("?")[0]})
+        img = im.group(1).split("?")[0]
+        # price: first $NN(N) in the card
+        pm = re.search(r'\$\s?(\d{2,4})(?:\.\d{2})?\b', block)
+        price = "$" + pm.group(1) if pm else None
+        out.append({"slug": slug, "url": url, "name": name, "img": img, "price": price})
+        seen.add(slug)
     return out
 
 
-def scrape():
-    # 1) left-to-drop (unreleased)
-    ltd_raw = fetch(f"{BASE}/season/{SEASON}/left-to-drop")
-    ltd_cards = parse_cards(ltd_raw)
-    # dedupe by url
-    ltd = {}
-    for c in ltd_cards:
-        ltd[c["url"]] = c
+def detail_images(slug, fallback_img):
+    """Pull all images belonging to this item from its detail page (for hover)."""
+    try:
+        h = fetch(f"{BASE}/items/{slug}-ss26")
+    except Exception:
+        return [fallback_img]
+    key = slug.replace("-", "")[:20]
+    out = []
+    for x in IMG_RE.findall(h):
+        x = x.split("?")[0]
+        fn = x.split("/")[-1].replace("-", "")
+        if fn.startswith(key) and x not in out:
+            out.append(x)
+    if fallback_img and fallback_img not in out:
+        out.insert(0, fallback_img)
+    return out or [fallback_img]
 
-    # 2) released items, week by week (1..20)
-    released = {}  # url -> {name,url,img,week}
+
+def scrape(with_detail_images=True, max_detail_workers=8):
+    season, kream_tag, season_label = detect_season()
+
+    # 1) unreleased
+    ltd_raw = fetch(f"{BASE}/season/{season}/left-to-drop")
+    ltd = {c["url"]: c for c in parse_page_cards(ltd_raw)}
+
+    # 2) released by week
+    released = {}
+
     def pull_week(w):
-        res = []
         try:
-            d = fetch(f"{BASE}/season/{SEASON}/week-{w}")
+            d = fetch(f"{BASE}/season/{season}/week-{w}")
         except Exception:
-            return res
-        for c in parse_cards(d):
-            c2 = dict(c); c2["week"] = w
-            res.append(c2)
+            return []
+        res = []
+        for c in parse_page_cards(d):
+            c = dict(c); c["week"] = w
+            res.append(c)
         return res
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
@@ -115,58 +192,71 @@ def scrape():
                     c["score"] = score
                     released[u] = c
 
-    # unreleased = ltd urls not in released
     released_urls = set(released.keys())
 
     items = []
-    # unreleased first
     uorder = {}
     for url, c in ltd.items():
         if url in released_urls:
             continue
         nm = c["name"]
         cat = guess_cat(nm)
-        uorder.setdefault(cat, 0)
-        uorder[cat] += 1
+        uorder[cat] = uorder.get(cat, 0) + 1
         items.append({
             "id": "u-" + cat.lower().replace("/", "-") + "-" + str(uorder[cat]),
             "name": nm, "cat": cat, "price": None,
-            "url": url, "img": c["img"], "released": False, "week": None,
+            "url": url, "img": c["img"], "imgs": [c["img"]],
+            "released": False, "week": None,
         })
-    # released
     i = 0
     for url, c in released.items():
         nm = clean_name(c["name"])
         items.append({
-            "id": "r-" + str(i), "name": nm, "cat": guess_cat(nm), "price": None,
-            "url": url, "img": c["img"], "released": True, "week": c["week"],
+            "id": "r-" + str(i), "name": nm, "cat": guess_cat(nm),
+            "price": c.get("price"),
+            "url": url, "img": c["img"], "imgs": [c["img"]],
+            "released": True, "week": c["week"],
         })
         i += 1
+
+    # 3) detail images (hover) — fetch each item's detail page
+    if with_detail_images:
+        def enrich(it):
+            it["imgs"] = detail_images(slug_from_url(it["url"]), it["img"])
+            return it
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_detail_workers) as ex:
+            list(ex.map(enrich, items))
 
     weeks = [c["week"] for c in released.values() if c.get("week")]
     latest = max(weeks) if weeks else None
 
-    data = {
+    return {
         "items": items,
         "cats": CAT_ORDER,
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "latestWeek": latest,
+        "season": season,
+        "seasonLabel": season_label,
+        "kreamTag": kream_tag,
         "counts": {
             "unreleased": sum(1 for x in items if not x["released"]),
             "released": sum(1 for x in items if x["released"]),
         },
     }
-    return data
 
 
 def main():
-    data = scrape()
+    detail = "--no-detail" not in sys.argv
+    data = scrape(with_detail_images=detail)
     if data["counts"]["unreleased"] == 0 and data["counts"]["released"] == 0:
-        print("ERROR: scraped 0 items, not writing (keeping previous data).", file=sys.stderr)
+        print("ERROR: scraped 0 items, not writing.", file=sys.stderr)
         sys.exit(1)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"Wrote {OUT} | unreleased={data['counts']['unreleased']} released={data['counts']['released']} latestWeek={data['latestWeek']}")
+    npriced = sum(1 for x in data["items"] if x.get("price"))
+    nmulti = sum(1 for x in data["items"] if len(x.get("imgs", [])) > 1)
+    print(f"Wrote {OUT} | unreleased={data['counts']['unreleased']} released={data['counts']['released']} "
+          f"latestWeek={data['latestWeek']} priced={npriced} multiImg={nmulti}")
 
 
 if __name__ == "__main__":
