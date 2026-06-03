@@ -136,6 +136,16 @@ header{
 .baskets{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:26px}
 .basket{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
 .basket-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+.basket-move{display:flex;gap:2px;flex:none}
+.basket-move .bmv{width:22px;height:24px;background:var(--chip);border:1px solid var(--line);color:var(--txt);border-radius:5px;font-size:14px;line-height:1;padding:0}
+.basket-move .bmv:hover:not(:disabled){border-color:var(--acc2)}
+.basket-move .bmv:disabled{opacity:.3;cursor:default}
+.bl-price{display:flex;align-items:center;gap:2px;flex:none}
+.bl-price .cur{font-size:12px;color:var(--mut)}
+.bl-priceinput{width:56px;background:var(--bg);border:1px solid var(--line);color:var(--ok);
+  border-radius:6px;padding:5px 6px;font-size:12px;font-weight:700;text-align:right}
+.bl-priceinput::placeholder{color:var(--mut);font-weight:400}
+.bl-priceinput:focus{outline:none;border-color:var(--acc2)}
 .basket-name{flex:1;min-width:0;background:transparent;border:none;color:var(--txt);font-size:14px;font-weight:700;padding:4px 2px;border-radius:6px}
 .basket-name:hover,.basket-name:focus{background:var(--panel2);outline:none}
 .basket-sum{text-align:right;flex:none}
@@ -502,6 +512,21 @@ function basketTotal(b){
   return b.lines.reduce((s,l)=>s+priceOf(l.itemId,l),0);
 }
 
+function updateTotals(){
+  // 각 바구니/전체 합계 텍스트만 갱신 (입력 포커스 유지)
+  let grand=0;
+  state.baskets.forEach(b=>{
+    const tot=basketTotal(b); grand+=tot;
+    const el=document.querySelector(`.basket[data-bid="${b.id}"] .bs-price`);
+    if(el) el.textContent="$"+tot;
+  });
+  const g=document.querySelector(".pk-grand");
+  if(g){
+    const cnt=state.baskets.reduce((s,b)=>s+b.lines.length,0);
+    g.innerHTML=`전체 <b>${cnt}개</b> · <b>$${grand}</b>`;
+  }
+}
+
 function renderPicks(){
   const wrap=document.getElementById("picksWrap");
   const picks=state.picks.map(id=>byId[id]).filter(Boolean);
@@ -520,10 +545,14 @@ function renderPicks(){
 
   // 바구니 그리드
   html += `<div class="baskets">`;
-  state.baskets.forEach(b=>{
+  state.baskets.forEach((b,bi)=>{
     const tot=basketTotal(b);
     html += `<div class="basket" data-bid="${b.id}">
       <div class="basket-head">
+        <div class="basket-move">
+          <button class="bmv" data-bmove="${b.id}|left" title="왼쪽으로" ${bi===0?'disabled':''}>‹</button>
+          <button class="bmv" data-bmove="${b.id}|right" title="오른쪽으로" ${bi===state.baskets.length-1?'disabled':''}>›</button>
+        </div>
         <input class="basket-name" data-bname="${b.id}" value="${esc(b.name)}" maxlength="30">
         <div class="basket-sum"><div class="bs-price">$${tot}</div><div class="bs-cnt">${b.lines.length}개</div></div>
         <button class="basket-del" data-bdel="${b.id}" title="바구니 삭제">🗑</button>
@@ -534,7 +563,7 @@ function renderPicks(){
     }else{
       b.lines.forEach(l=>{
         const it=byId[l.itemId]; if(!it) return;
-        const p=priceOf(l.itemId,l);
+        const sitePrice=it?priceNum(it.price):null;
         const tags=[];
         if(l.color) tags.push(`<span class="dot" style="background:${colorHex(l.color)}"></span>${esc(l.color)}`);
         if(l.size) tags.push(esc(l.size));
@@ -543,7 +572,11 @@ function renderPicks(){
           <img src="${it.img}" alt="" loading="lazy">
           <div class="bl-main">
             <div class="bl-name">${esc(it.name)}</div>
-            <div class="bl-sub">$${p}${tagHtml}</div>
+            <div class="bl-sub">${tagHtml}</div>
+          </div>
+          <div class="bl-price">
+            <span class="cur">$</span>
+            <input class="bl-priceinput" data-lprice="${b.id}|${l.lid}" value="${l.price!=null&&l.price!==''?esc(String(l.price)):''}" placeholder="${sitePrice!=null?sitePrice:'0'}" inputmode="numeric">
           </div>
           <button class="bl-del" data-ldel="${b.id}|${l.lid}">×</button>
         </div>`;
@@ -606,11 +639,35 @@ function bindPicksView(){
     state.baskets=state.baskets.filter(x=>x.id!==btn.dataset.bdel);
     saveBaskets();renderPicks();
   });
+  // 바구니 좌우 이동
+  document.querySelectorAll("[data-bmove]").forEach(btn=>btn.onclick=()=>{
+    const [bid,dir]=btn.dataset.bmove.split("|");
+    const i=state.baskets.findIndex(x=>x.id===bid);
+    const j=dir==="left"?i-1:i+1;
+    if(j<0||j>=state.baskets.length) return;
+    [state.baskets[i],state.baskets[j]]=[state.baskets[j],state.baskets[i]];
+    saveBaskets();renderPicks();
+  });
   // 라인 삭제
   document.querySelectorAll("[data-ldel]").forEach(btn=>btn.onclick=()=>{
     const [bid,lid]=btn.dataset.ldel.split("|");
     const b=state.baskets.find(x=>x.id===bid);
     if(b){ b.lines=b.lines.filter(l=>l.lid!==lid); saveBaskets();renderPicks(); }
+  });
+  // 라인 가격 직접 입력 (입력 중엔 합계만 갱신, 포커스 유지)
+  document.querySelectorAll("[data-lprice]").forEach(inp=>{
+    inp.onmousedown=e=>e.stopPropagation();
+    inp.oninput=()=>{
+      const [bid,lid]=inp.dataset.lprice.split("|");
+      const b=state.baskets.find(x=>x.id===bid);
+      if(!b) return;
+      const l=b.lines.find(x=>x.lid===lid);
+      if(!l) return;
+      const v=inp.value.replace(/[^\d.]/g,"");
+      l.price = v;
+      saveBaskets();
+      updateTotals();
+    };
   });
   // 찜 항목: 색/사이즈 입력 저장(메모리)
   const colorMap={}, sizeMap={};
