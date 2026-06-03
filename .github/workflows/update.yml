@@ -1,0 +1,61 @@
+name: Update data & deploy
+
+on:
+  schedule:
+    # Runs every day at 18:00 UTC (= 03:00 KST). Supreme drops Thu ~16:00 UTC.
+    - cron: "0 18 * * *"
+  workflow_dispatch: {}      # allow manual run from the Actions tab
+  push:
+    branches: [ main ]       # redeploy when you edit the site
+
+permissions:
+  contents: write            # to commit refreshed data.json
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Scrape latest data
+        run: python scripts/scrape.py
+
+      - name: Commit updated data.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain data/data.json)" ]; then
+            git add data/data.json
+            git commit -m "chore: refresh data $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          else
+            echo "No data changes."
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .                # serve the whole repo (index.html + data/)
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
