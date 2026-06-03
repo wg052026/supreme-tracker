@@ -84,7 +84,8 @@ header{
 .card{
   background:var(--panel);border:1px solid var(--line);border-radius:12px;
   overflow:hidden;display:flex;flex-direction:column;position:relative;
-  transition:border-color .15s,transform .15s
+  transition:border-color .15s,transform .15s;
+  content-visibility:auto;contain-intrinsic-size:240px
 }
 .card:hover{border-color:var(--acc);transform:translateY(-2px)}
 .card.picked{border-color:var(--ok)}
@@ -304,12 +305,14 @@ function cardHtml(it, pset){
   const picked = pset.has(it.id);
   const badge = it.released ? `` : `<span class="badge coming">예정</span>`;
   const imgs = (it.imgs && it.imgs.length ? it.imgs : [it.img]).slice(0,6);
-  const imgTags = imgs.map((u,idx)=>`<img class="${idx===0?'on':''}" loading="lazy" src="${u}" alt="${esc(it.name)}">`).join("");
-  const dots = imgs.length>1 ? `<div class="dots">${imgs.map((_,idx)=>`<i class="${idx===0?'on':''}"></i>`).join("")}</div>` : "";
+  // 첫 장만 즉시(단, lazy), 나머지는 data 속성에 보관 → 호버 때 생성
+  const rest = imgs.slice(1);
+  const restAttr = rest.length ? ` data-rest="${esc(rest.join('|'))}"` : "";
   const priceHtml = it.price ? `<span class="price">${it.price}</span>` : `<span class="price tba">가격 미정</span>`;
   return `<div class="card ${picked?'picked':''}" data-id="${it.id}">
-      <div class="thumb" data-url="${it.url}" data-imgs="${imgs.length}">
-        ${badge}${imgTags}${dots}
+      <div class="thumb" data-url="${it.url}" data-imgs="${imgs.length}"${restAttr}>
+        ${badge}
+        <img class="on" loading="lazy" decoding="async" src="${imgs[0]}" alt="${esc(it.name)}">
         <button class="add" data-add="${it.id}" title="픽 추가/제거">${picked?'✓':'+'}</button>
       </div>
       <div class="cbody">
@@ -363,30 +366,68 @@ function secBlock(id, title, count, items, pset){
   </section>`;
 }
 
+function buildRestImages(thumb){
+  if(thumb.dataset.built) return;        // 이미 생성됨
+  thumb.dataset.built = "1";
+  const rest = thumb.dataset.rest;
+  if(!rest) return;
+  const urls = rest.split("|");
+  const first = thumb.querySelector("img");
+  const frag = document.createDocumentFragment();
+  urls.forEach(u=>{
+    const im = document.createElement("img");
+    im.loading = "lazy"; im.decoding = "async"; im.src = u; im.alt = "";
+    frag.appendChild(im);
+  });
+  // 이미지들은 첫 img 뒤에 삽입
+  first.after(frag);
+  // dots 생성
+  const total = urls.length + 1;
+  const dots = document.createElement("div");
+  dots.className = "dots";
+  for(let i=0;i<total;i++){ const d=document.createElement("i"); if(i===0)d.classList.add("on"); dots.appendChild(d); }
+  thumb.appendChild(dots);
+}
+
+function startSlide(card){
+  const t = card.querySelector(".thumb");
+  if(+t.dataset.imgs <= 1) return;
+  buildRestImages(t);
+  const imgs=[...t.querySelectorAll("img")];
+  const dots=[...t.querySelectorAll(".dots i")];
+  let idx=0;
+  const show=i=>{
+    imgs[idx].classList.remove("on"); if(dots[idx])dots[idx].classList.remove("on");
+    idx=(i+imgs.length)%imgs.length;
+    imgs[idx].classList.add("on"); if(dots[idx])dots[idx].classList.add("on");
+  };
+  const timer=setInterval(()=>show(idx+1),650);
+  card._slideStop=()=>{ clearInterval(timer); show(0); card._slideStop=null; };
+  t.onmousemove=e=>{
+    const r=t.getBoundingClientRect();
+    const seg=Math.floor((e.clientX-r.left)/(r.width/imgs.length));
+    if(seg!==idx && seg>=0 && seg<imgs.length) show(seg);
+  };
+}
+
 function bindGalleryEvents(){
   const grid = document.getElementById("grid");
-  grid.querySelectorAll(".thumb").forEach(t=>{
-    t.onclick=e=>{ if(e.target.closest(".add"))return; window.open(t.dataset.url,"_blank"); };
-    const imgs=[...t.querySelectorAll("img")];
-    const dots=[...t.querySelectorAll(".dots i")];
-    if(imgs.length>1){
-      let idx=0, timer=null;
-      const show=i=>{
-        imgs[idx].classList.remove("on"); if(dots[idx])dots[idx].classList.remove("on");
-        idx=(i+imgs.length)%imgs.length;
-        imgs[idx].classList.add("on"); if(dots[idx])dots[idx].classList.add("on");
-      };
-      const card=t.closest(".card");
-      card.addEventListener("mouseenter",()=>{ timer=setInterval(()=>show(idx+1),650); });
-      card.addEventListener("mouseleave",()=>{ clearInterval(timer); show(0); });
-      t.addEventListener("mousemove",e=>{
-        const r=t.getBoundingClientRect();
-        const seg=Math.floor((e.clientX-r.left)/(r.width/imgs.length));
-        if(seg!==idx && seg>=0 && seg<imgs.length){ clearInterval(timer); show(seg); }
-      });
-    }
-  });
-  grid.querySelectorAll("[data-add]").forEach(b=>b.onclick=e=>{e.stopPropagation();togglePick(b.dataset.add);});
+  // 이벤트 위임: 클릭/추가
+  grid.onclick = e=>{
+    const add = e.target.closest("[data-add]");
+    if(add){ e.stopPropagation(); togglePick(add.dataset.add); return; }
+    const thumb = e.target.closest(".thumb");
+    if(thumb && !e.target.closest(".add")){ window.open(thumb.dataset.url,"_blank"); }
+  };
+  // 호버 위임 (mouseover/out은 버블링됨)
+  grid.onmouseover = e=>{
+    const card = e.target.closest(".card");
+    if(card && !card._slideStop && !card.contains(e.relatedTarget)) startSlide(card);
+  };
+  grid.onmouseout = e=>{
+    const card = e.target.closest(".card");
+    if(card && card._slideStop && !card.contains(e.relatedTarget)) card._slideStop();
+  };
 }
 
 function togglePick(id){
