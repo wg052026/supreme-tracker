@@ -39,6 +39,7 @@ jobs:
           if [ -n "$(git status --porcelain data/data.json)" ]; then
             git add data/data.json
             git commit -m "chore: refresh data $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git pull --rebase origin main
             git push
           else
             echo "No data changes."
