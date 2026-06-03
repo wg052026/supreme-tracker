@@ -66,9 +66,11 @@ header{
 
 /* ===== Grid & Sections ===== */
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px}
-.wsec{margin-bottom:30px;scroll-margin-top:120px}
+.wsec{margin-bottom:30px;scroll-margin-top:170px}
 .wsec-head{display:flex;align-items:baseline;gap:10px;margin:0 0 12px;
-  padding-bottom:8px;border-bottom:1px solid var(--line)}
+  padding:10px 0 8px;border-bottom:1px solid var(--line);
+  position:sticky;top:var(--hdr,154px);z-index:30;
+  background:var(--bg)}
 .wsec-head h3{margin:0;font-size:16px;font-weight:800;letter-spacing:-.3px}
 .wsec-head span{color:var(--mut);font-size:12px}
 .weekjump{display:flex;gap:6px;padding:9px 18px;flex-wrap:wrap;align-items:center;
@@ -77,6 +79,7 @@ header{
 .wchip{background:var(--chip);border:1px solid var(--line);color:var(--mut);
   padding:4px 9px;border-radius:6px;font-size:11px;white-space:nowrap}
 .wchip:hover{border-color:var(--acc);color:var(--txt)}
+.wchip:focus{outline:none}
 .wchip.latest{border-color:var(--acc);color:var(--txt);font-weight:700}
 .card{
   background:var(--panel);border:1px solid var(--line);border-radius:12px;
@@ -146,6 +149,14 @@ header{
 .bulk button{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   border-radius:8px;padding:7px;font-size:11.5px}
 .bulk button:hover{border-color:var(--acc)}
+.bulk #delSel{border-color:#5a2730;color:#ff8a9a}
+.bulk #delSel:hover{border-color:var(--acc);background:#2a1418}
+.movebar{margin-bottom:12px}
+.movebar .mlabel{display:block;color:var(--mut);font-size:11px;margin-bottom:5px}
+.movebar .mbtns{display:flex;gap:6px}
+.movebar .mbtns button{flex:1;background:var(--panel2);border:1px solid var(--line);
+  color:var(--txt);border-radius:8px;padding:7px 4px;font-size:11px;white-space:nowrap}
+.movebar .mbtns button:hover{border-color:var(--acc2)}
 .total{border-top:1px solid var(--line);padding-top:10px;margin-top:6px;
   display:flex;justify-content:space-between;font-size:13px}
 .total b{color:var(--ok)}
@@ -194,6 +205,15 @@ header{
       <button id="selAll">전체선택</button>
       <button id="selNone">선택해제</button>
       <button id="delSel">선택삭제</button>
+    </div>
+    <div class="movebar" id="moveBar">
+      <span class="mlabel">선택 항목 이동:</span>
+      <div class="mbtns">
+        <button id="mvTop" title="맨 위로">⤒ 맨위</button>
+        <button id="mvUp" title="위로">▲ 위로</button>
+        <button id="mvDown" title="아래로">▼ 아래로</button>
+        <button id="mvBottom" title="맨 아래로">⤓ 맨아래</button>
+      </div>
     </div>
     <div class="sec" id="secWeek"></div>
     <div class="sec" id="secAll"></div>
@@ -282,9 +302,7 @@ function filteredItems(){
 
 function cardHtml(it, pset){
   const picked = pset.has(it.id);
-  const badge = it.released
-    ? `<span class="badge wk ${it.week===LATEST?'hot':''}">W${it.week}</span>`
-    : `<span class="badge coming">예정</span>`;
+  const badge = it.released ? `` : `<span class="badge coming">예정</span>`;
   const imgs = (it.imgs && it.imgs.length ? it.imgs : [it.img]).slice(0,6);
   const imgTags = imgs.map((u,idx)=>`<img class="${idx===0?'on':''}" loading="lazy" src="${u}" alt="${esc(it.name)}">`).join("");
   const dots = imgs.length>1 ? `<div class="dots">${imgs.map((_,idx)=>`<i class="${idx===0?'on':''}"></i>`).join("")}</div>` : "";
@@ -330,10 +348,18 @@ function renderGallery(){
   bindGalleryEvents();
 }
 
+const CAT_RANK = {};
+DATA.cats.forEach((c,i)=>CAT_RANK[c]=i);
+
 function secBlock(id, title, count, items, pset){
+  const sorted = items.slice().sort((a,b)=>{
+    const ra=(CAT_RANK[a.cat]??99), rb=(CAT_RANK[b.cat]??99);
+    if(ra!==rb) return ra-rb;
+    return (a.name||"").localeCompare(b.name||"");
+  });
   return `<section class="wsec" id="sec-${id}">
     <div class="wsec-head"><h3>${title}</h3><span>${count}개</span></div>
-    <div class="cards">${items.map(it=>cardHtml(it,pset)).join("")}</div>
+    <div class="cards">${sorted.map(it=>cardHtml(it,pset)).join("")}</div>
   </section>`;
 }
 
@@ -391,14 +417,10 @@ function sectionHtml(title, list, showOrder){
   else{
     body = list.map(it=>{
       const checked = state.selected.has(it.id)?'checked':'';
-      const ord = showOrder ? `<div class="ord">
-          <button data-up="${it.id}">▲</button>
-          <button data-down="${it.id}">▼</button></div>` : "";
       return `<div class="pick" draggable="${showOrder?'true':'false'}" data-pid="${it.id}">
         <input type="checkbox" class="pchk" data-chk="${it.id}" ${checked}>
         <img src="${it.img}" alt="">
         <div class="pn">${esc(it.name)}</div>
-        ${ord}
         <button class="del" data-del="${it.id}">×</button>
       </div>`;
     }).join("");
@@ -415,8 +437,6 @@ function bindPickEvents(){
   document.querySelectorAll("[data-chk]").forEach(c=>c.onchange=()=>{
     if(c.checked) state.selected.add(c.dataset.chk); else state.selected.delete(c.dataset.chk);
   });
-  document.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>moveP(b.dataset.up,-1));
-  document.querySelectorAll("[data-down]").forEach(b=>b.onclick=()=>moveP(b.dataset.down,1));
 
   // drag reorder (전체 픽 섹션)
   let dragId=null;
@@ -435,10 +455,34 @@ function bindPickEvents(){
   });
 }
 
-function moveP(id,dir){
-  const arr=state.picks, i=arr.indexOf(id), j=i+dir;
-  if(j<0||j>=arr.length)return;
-  [arr[i],arr[j]]=[arr[j],arr[i]];
+/* 선택된 항목들을 한꺼번에 이동 (top/up/down/bottom) */
+function moveSelected(where){
+  const sel = state.picks.filter(id=>state.selected.has(id));
+  if(!sel.length) return;
+  const others = state.picks.filter(id=>!state.selected.has(id));
+  const selSet = new Set(sel);
+
+  if(where==="top"){
+    state.picks = [...sel, ...others];
+  }else if(where==="bottom"){
+    state.picks = [...others, ...sel];
+  }else if(where==="up"){
+    const arr = state.picks.slice();
+    for(let i=0;i<arr.length;i++){
+      if(selSet.has(arr[i]) && i>0 && !selSet.has(arr[i-1])){
+        [arr[i-1],arr[i]]=[arr[i],arr[i-1]];
+      }
+    }
+    state.picks = arr;
+  }else if(where==="down"){
+    const arr = state.picks.slice();
+    for(let i=arr.length-1;i>=0;i--){
+      if(selSet.has(arr[i]) && i<arr.length-1 && !selSet.has(arr[i+1])){
+        [arr[i+1],arr[i]]=[arr[i],arr[i+1]];
+      }
+    }
+    state.picks = arr;
+  }
   savePicks();render();
 }
 
@@ -450,6 +494,10 @@ document.getElementById("delSel").onclick=()=>{
   state.picks=state.picks.filter(id=>!state.selected.has(id));
   state.selected.clear();savePicks();render();
 };
+document.getElementById("mvTop").onclick=()=>moveSelected("top");
+document.getElementById("mvUp").onclick=()=>moveSelected("up");
+document.getElementById("mvDown").onclick=()=>moveSelected("down");
+document.getElementById("mvBottom").onclick=()=>moveSelected("bottom");
 
 /* ---------- Import / Export ---------- */
 document.getElementById("btnExport").onclick=()=>{
@@ -481,7 +529,13 @@ function switchTab(t){
 /* ---------- Util ---------- */
 function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
-function render(){ buildFilters(); renderGallery(); renderPicks(); }
+function syncHeaderHeight(){
+  const h = document.querySelector("header");
+  if(h) document.documentElement.style.setProperty("--hdr", (h.getBoundingClientRect().height)+"px");
+}
+window.addEventListener("resize", syncHeaderHeight);
+
+function render(){ buildFilters(); renderGallery(); renderPicks(); syncHeaderHeight(); }
 
 document.getElementById("logoSeason").textContent =
   (DATA.kreamTag ? DATA.kreamTag.replace(/(\d\d)(ss|fw)/,(m,y,s)=>y+(s==="ss"?"S/S":"F/W")) : "") + " Pick Board";
