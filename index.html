@@ -142,10 +142,21 @@ header{
 .basket-move .bmv:disabled{opacity:.3;cursor:default}
 .bl-price{display:flex;align-items:center;gap:2px;flex:none}
 .bl-price .cur{font-size:12px;color:var(--mut)}
-.bl-priceinput{width:56px;background:var(--bg);border:1px solid var(--line);color:var(--ok);
-  border-radius:6px;padding:5px 6px;font-size:12px;font-weight:700;text-align:right}
+.bl-fields{display:flex;align-items:center;gap:5px;margin-top:4px;flex-wrap:wrap}
+.bl-dot{width:11px;height:11px;border-radius:50%;flex:none;border:1px solid rgba(255,255,255,.25)}
+.bl-color{width:62px}.bl-size{width:50px}
+.bl-color,.bl-size{background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:4px 6px;font-size:11px}
+.bl-color:focus,.bl-size:focus{outline:none;border-color:var(--acc2)}
+.bl-pricewrap{display:inline-flex;align-items:center;gap:2px}
+.bl-pricewrap .cur{font-size:12px;color:var(--mut)}
+.bl-priceinput{width:54px;background:var(--bg);border:1px solid var(--line);color:var(--ok);
+  border-radius:6px;padding:4px 6px;font-size:11px;font-weight:700;text-align:right}
 .bl-priceinput::placeholder{color:var(--mut);font-weight:400}
 .bl-priceinput:focus{outline:none;border-color:var(--acc2)}
+.basket-grip{color:var(--mut);font-size:13px;cursor:grab;flex:none;letter-spacing:-1px}
+.basket-head[draggable="true"]{cursor:grab}
+.basket.bdragging{opacity:.45}
+.basket.btarget{outline:2px dashed var(--acc);outline-offset:2px}
 .basket-name{flex:1;min-width:0;background:transparent;border:none;color:var(--txt);font-size:14px;font-weight:700;padding:4px 2px;border-radius:6px}
 .basket-name:hover,.basket-name:focus{background:var(--panel2);outline:none}
 .basket-sum{text-align:right;flex:none}
@@ -547,8 +558,9 @@ function renderPicks(){
   html += `<div class="baskets">`;
   state.baskets.forEach((b,bi)=>{
     const tot=basketTotal(b);
-    html += `<div class="basket" data-bid="${b.id}">
-      <div class="basket-head">
+    html += `<div class="basket" data-bid="${b.id}" data-bidx="${bi}">
+      <div class="basket-head" data-bdrag="${b.id}">
+        <span class="basket-grip" title="드래그해서 순서 변경">⠿</span>
         <div class="basket-move">
           <button class="bmv" data-bmove="${b.id}|left" title="왼쪽으로" ${bi===0?'disabled':''}>‹</button>
           <button class="bmv" data-bmove="${b.id}|right" title="오른쪽으로" ${bi===state.baskets.length-1?'disabled':''}>›</button>
@@ -564,19 +576,16 @@ function renderPicks(){
       b.lines.forEach(l=>{
         const it=byId[l.itemId]; if(!it) return;
         const sitePrice=it?priceNum(it.price):null;
-        const tags=[];
-        if(l.color) tags.push(`<span class="dot" style="background:${colorHex(l.color)}"></span>${esc(l.color)}`);
-        if(l.size) tags.push(esc(l.size));
-        const tagHtml = tags.length?`<span class="lt">${tags.join(" · ")}</span>`:"";
         html += `<div class="bline" data-lid="${l.lid}">
           <img src="${it.img}" alt="" loading="lazy">
           <div class="bl-main">
             <div class="bl-name">${esc(it.name)}</div>
-            <div class="bl-sub">${tagHtml}</div>
-          </div>
-          <div class="bl-price">
-            <span class="cur">$</span>
-            <input class="bl-priceinput" data-lprice="${b.id}|${l.lid}" value="${l.price!=null&&l.price!==''?esc(String(l.price)):''}" placeholder="${sitePrice!=null?sitePrice:'0'}" inputmode="numeric">
+            <div class="bl-fields">
+              <span class="bl-dot" style="background:${colorHex(l.color)}"></span>
+              <input class="bl-color" data-lcolor="${b.id}|${l.lid}" value="${esc(l.color||'')}" placeholder="색상" maxlength="20">
+              <input class="bl-size" data-lsize="${b.id}|${l.lid}" value="${esc(l.size||'')}" placeholder="사이즈" maxlength="10">
+              <span class="bl-pricewrap"><span class="cur">$</span><input class="bl-priceinput" data-lprice="${b.id}|${l.lid}" value="${l.price!=null&&l.price!==''?esc(String(l.price)):''}" placeholder="${sitePrice!=null?sitePrice:'0'}" inputmode="numeric"></span>
+            </div>
           </div>
           <button class="bl-del" data-ldel="${b.id}|${l.lid}">×</button>
         </div>`;
@@ -669,6 +678,28 @@ function bindPicksView(){
       updateTotals();
     };
   });
+  // 라인 색상 직접 편집 (입력 중 색점만 갱신, 포커스 유지)
+  document.querySelectorAll("[data-lcolor]").forEach(inp=>{
+    inp.onmousedown=e=>e.stopPropagation();
+    inp.oninput=()=>{
+      const [bid,lid]=inp.dataset.lcolor.split("|");
+      const b=state.baskets.find(x=>x.id===bid); if(!b) return;
+      const l=b.lines.find(x=>x.lid===lid); if(!l) return;
+      l.color=inp.value; saveBaskets();
+      const dot=inp.parentElement.querySelector(".bl-dot");
+      if(dot) dot.style.background=colorHex(inp.value);
+    };
+  });
+  // 라인 사이즈 직접 편집
+  document.querySelectorAll("[data-lsize]").forEach(inp=>{
+    inp.onmousedown=e=>e.stopPropagation();
+    inp.oninput=()=>{
+      const [bid,lid]=inp.dataset.lsize.split("|");
+      const b=state.baskets.find(x=>x.id===bid); if(!b) return;
+      const l=b.lines.find(x=>x.lid===lid); if(!l) return;
+      l.size=inp.value; saveBaskets();
+    };
+  });
   // 찜 항목: 색/사이즈 입력 저장(메모리)
   const colorMap={}, sizeMap={};
   document.querySelectorAll("[data-pc]").forEach(i=>i.oninput=()=>colorMap[i.dataset.pc]=i.value);
@@ -689,16 +720,17 @@ function bindPicksView(){
     savePicks();render();
   });
 
-  // 드래그: 찜 항목 → 바구니
-  let dragId=null;
+  // 드래그: 찜 항목 → 바구니 / 바구니 순서 변경
+  let dragId=null, dragBasketId=null;
   document.querySelectorAll(".pitem").forEach(el=>{
     el.ondragstart=e=>{ dragId=el.dataset.pid; e.dataTransfer.effectAllowed="copy"; };
     el.ondragend=()=>{ dragId=null; };
   });
   document.querySelectorAll("[data-drop]").forEach(zone=>{
-    zone.ondragover=e=>{ e.preventDefault(); zone.classList.add("over"); };
+    zone.ondragover=e=>{ if(dragBasketId)return; e.preventDefault(); zone.classList.add("over"); };
     zone.ondragleave=()=>zone.classList.remove("over");
     zone.ondrop=e=>{
+      if(dragBasketId) return;
       e.preventDefault(); zone.classList.remove("over");
       if(!dragId) return;
       const b=state.baskets.find(x=>x.id===zone.dataset.drop);
@@ -706,6 +738,29 @@ function bindPicksView(){
       const color=row?row.querySelector(".pi-color").value.trim():"";
       const size=row?row.querySelector(".pi-size").value.trim():"";
       if(b){ b.lines.push({lid:uid("l"), itemId:dragId, color, size, price:""}); saveBaskets();renderPicks(); }
+    };
+  });
+
+  // 드래그: 바구니 순서 변경 (헤더를 잡고 다른 바구니 위로)
+  document.querySelectorAll("[data-bdrag]").forEach(head=>{
+    head.setAttribute("draggable","true");
+    head.ondragstart=e=>{ dragBasketId=head.dataset.bdrag; e.dataTransfer.effectAllowed="move";
+      head.closest(".basket").classList.add("bdragging"); };
+    head.ondragend=()=>{ dragBasketId=null;
+      document.querySelectorAll(".basket").forEach(x=>x.classList.remove("bdragging","btarget")); };
+  });
+  document.querySelectorAll(".basket").forEach(card=>{
+    card.ondragover=e=>{ if(!dragBasketId||card.dataset.bid===dragBasketId)return;
+      e.preventDefault(); card.classList.add("btarget"); };
+    card.ondragleave=()=>card.classList.remove("btarget");
+    card.ondrop=e=>{
+      if(!dragBasketId||card.dataset.bid===dragBasketId)return;
+      e.preventDefault();
+      const from=state.baskets.findIndex(x=>x.id===dragBasketId);
+      const to=state.baskets.findIndex(x=>x.id===card.dataset.bid);
+      if(from<0||to<0)return;
+      state.baskets.splice(to,0,state.baskets.splice(from,1)[0]);
+      saveBaskets();renderPicks();
     };
   });
 }
