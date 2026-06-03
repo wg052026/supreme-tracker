@@ -767,11 +767,33 @@ function bindPicksView(){
 
 /* 색상명 → 대표 색 (자유입력이라 매칭되면 칠하고 아니면 회색) */
 function colorHex(name){
-  const n=(name||"").toLowerCase();
-  const map={black:"#111",white:"#eee",navy:"#1b2a4a",blue:"#378ADD",red:"#E24B4A",
-    green:"#1D9E75",brown:"#712B13",tan:"#c9a36a",beige:"#d8c4a0",grey:"#888",gray:"#888",
-    pink:"#ED93B1",purple:"#7F77DD",yellow:"#EFBF27",orange:"#D85A30",olive:"#7a7a3a",
-    cream:"#efe7d0",khaki:"#b6a76a",teal:"#1D9E75",burgundy:"#5a1a2a",camo:"#5a6a3a"};
+  const raw=(name||"").trim().toLowerCase();
+  const n=raw;
+  // 약자(전체 일치) — 짧아서 부분일치하면 오인식되므로 정확히 일치할 때만
+  const abbr={
+    bk:"#111", wh:"#eee", nv:"#1b2a4a", bl:"#378ADD", rd:"#E24B4A",
+    gn:"#1D9E75", br:"#712B13", gy:"#888", gr:"#888", pk:"#ED93B1",
+    pp:"#7F77DD", pu:"#7F77DD", yl:"#EFBF27", og:"#D85A30", or:"#D85A30",
+    ol:"#7a7a3a", kk:"#b6a76a", bg:"#d8c4a0", cr:"#efe7d0", sv:"#c4c4c4",
+    gd:"#c9a227", tn:"#c9a36a", mt:"#9fe1cb"
+  };
+  if(abbr[raw]) return abbr[raw];
+  const map={
+    black:"#111", white:"#eee", navy:"#1b2a4a", blue:"#378ADD", red:"#E24B4A",
+    green:"#1D9E75", brown:"#712B13", tan:"#c9a36a", beige:"#d8c4a0", grey:"#888", gray:"#888",
+    pink:"#ED93B1", purple:"#7F77DD", yellow:"#EFBF27", orange:"#D85A30", olive:"#7a7a3a",
+    cream:"#efe7d0", khaki:"#b6a76a", teal:"#1D9E75", burgundy:"#5a1a2a", camo:"#5a6a3a",
+    silver:"#c4c4c4", gold:"#c9a227", charcoal:"#36454f", mint:"#9fe1cb", indigo:"#3f3a8c",
+    "검정":"#111","블랙":"#111","검은":"#111","흰":"#eee","화이트":"#eee","하양":"#eee","흰색":"#eee",
+    "네이비":"#1b2a4a","감색":"#1b2a4a","파랑":"#378ADD","블루":"#378ADD","파란":"#378ADD","하늘":"#7fb5e6","하늘색":"#7fb5e6",
+    "빨강":"#E24B4A","레드":"#E24B4A","빨간":"#E24B4A","초록":"#1D9E75","그린":"#1D9E75","녹색":"#1D9E75",
+    "갈색":"#712B13","브라운":"#712B13","베이지":"#d8c4a0","탄":"#c9a36a",
+    "회색":"#888","그레이":"#888","회":"#888","핑크":"#ED93B1","분홍":"#ED93B1",
+    "보라":"#7F77DD","퍼플":"#7F77DD","노랑":"#EFBF27","옐로우":"#EFBF27","노란":"#EFBF27",
+    "주황":"#D85A30","오렌지":"#D85A30","올리브":"#7a7a3a","카키":"#b6a76a","크림":"#efe7d0",
+    "민트":"#9fe1cb","버건디":"#5a1a2a","와인":"#5a1a2a","카모":"#5a6a3a","위장":"#5a6a3a",
+    "실버":"#c4c4c4","은색":"#c4c4c4","골드":"#c9a227","금색":"#c9a227","남색":"#1b2a4a","청록":"#1D9E75"
+  };
   for(const k in map){ if(n.includes(k)) return map[k]; }
   return "#888780";
 }
