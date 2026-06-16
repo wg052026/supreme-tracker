@@ -516,7 +516,7 @@ function togglePick(id){
   const i = state.picks.indexOf(id);
   if(i>=0) state.picks.splice(i,1);
   else state.picks.push(id);
-  savePicks(); render();
+  savePicks(); patchPickState();  // 갤러리 전체 재렌더 없이 카드만 업데이트
 }
 
 /* ---------- Picks view (찜 목록 + 여러 바구니) ---------- */
@@ -836,6 +836,7 @@ function switchTab(t){
   document.getElementById("galleryView").hidden = (t!=="gallery");
   document.getElementById("picksView").hidden = (t!=="picks");
   if(t==="picks") renderPicks();
+  else syncHeaderHeight();
   window.scrollTo(0,0);
 }
 
@@ -850,10 +851,27 @@ window.addEventListener("resize", syncHeaderHeight);
 
 function render(){
   buildFilters(); renderGallery(); syncHeaderHeight();
-  // 찜 개수 뱃지 갱신 + 픽 화면이 열려있으면 다시 그림
+  updatePickBadge();
+  if(state.view==="picks") renderPicks();
+}
+
+/* 갤러리 전체 재렌더 없이 찜 상태만 카드에 반영 */
+function patchPickState(){
+  const pset=new Set(state.picks);
+  document.querySelectorAll(".card").forEach(card=>{
+    const id=card.dataset.id;
+    const picked=pset.has(id);
+    card.classList.toggle("picked",picked);
+    const btn=card.querySelector(".add");
+    if(btn) btn.textContent=picked?"✓":"+";
+  });
+  updatePickBadge();
+  if(state.view==="picks") renderPicks();
+}
+
+function updatePickBadge(){
   const picks=state.picks.map(id=>byId[id]).filter(Boolean);
   document.getElementById("tabCount").textContent = picks.length?`(${picks.length})`:"";
-  if(state.view==="picks") renderPicks();
 }
 
 document.getElementById("logoSeason").textContent =
@@ -863,6 +881,11 @@ document.getElementById("metaLine").textContent =
   `${(DATA.seasonLabel||"")} · ${DATA.counts.unreleased+DATA.counts.released}개 · 미발매 ${DATA.counts.unreleased} / 발매 ${DATA.counts.released} · 최신 W${LATEST} · ${DATA.updated}`;
 
 render();
+
+// Service Worker 등록 (이미지 캐시)
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
 </script>
 </body>
 </html>
