@@ -276,6 +276,14 @@ header{
 const DATA = await (async()=>{ const r=await fetch("data/data.json",{cache:"no-store"}); if(!r.ok) throw new Error("data load failed"); return await r.json(); })();
 
 /* ---------- KREAM 검색어: Supreme 접두어 + 시즌 태그(26ss/26fw 자동) 둘 다 유지 ---------- */
+/* 이미지 리사이즈: supremedroplist CDN은 ?width=N 지원 (원본 수MB → 수KB) */
+function thumb(url, w){
+  if(!url) return url;
+  if(url.indexOf("supremedroplist.com")<0) return url;
+  if(url.indexOf("?")>=0) return url;
+  return url + "?width=" + (w||400);
+}
+
 function kreamUrl(name){
   let s=(name||"").replace(/[®™]/g,"").replace(/\s*\/\s*/g," ");
   s=s.replace(/\bZip Up\b/ig,"").replace(/\bS S\b/g,"").replace(/\bL S\b/g,"");
@@ -378,7 +386,7 @@ function filteredItems(){
 function cardHtml(it, pset){
   const picked = pset.has(it.id);
   const badge = it.released ? `` : `<span class="badge coming">예정</span>`;
-  const imgs = (it.imgs && it.imgs.length ? it.imgs : [it.img]).slice(0,6);
+  const imgs = (it.imgs && it.imgs.length ? it.imgs : [it.img]).slice(0,6).map(u=>thumb(u,400));
   // 첫 장만 즉시(단, lazy), 나머지는 data 속성에 보관 → 호버 때 생성
   const rest = imgs.slice(1);
   const restAttr = rest.length ? ` data-rest="${esc(rest.join('|'))}"` : "";
@@ -577,7 +585,7 @@ function renderPicks(){
         const it=byId[l.itemId]; if(!it) return;
         const sitePrice=it?priceNum(it.price):null;
         html += `<div class="bline" data-lid="${l.lid}">
-          <img src="${it.img}" alt="" loading="lazy">
+          <img src="${thumb(it.img,200)}" alt="" loading="lazy">
           <div class="bl-main">
             <div class="bl-name">${esc(it.name)}</div>
             <div class="bl-fields">
@@ -606,7 +614,7 @@ function renderPicks(){
       const p=priceNum(it.price);
       html += `<div class="pitem" draggable="true" data-pid="${it.id}">
         <span class="grip">⋮⋮</span>
-        <img src="${it.img}" alt="" loading="lazy">
+        <img src="${thumb(it.img,200)}" alt="" loading="lazy">
         <div class="pi-main">
           <div class="pi-name">${esc(it.name)}</div>
           <div class="pi-sub">${it.cat} · ${p?'$'+p:'가격 미정'}</div>
