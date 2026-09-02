@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Supreme 26S/S data scraper (v2).
+Supreme data scraper (v3) - 시즌을 자동으로 따라간다.
 - Released items by week (1..20) + left-to-drop (unreleased) from supremedroplist.com
 - Prices: parsed per-card from week pages (released items only)
 - Images: multiple images per item pulled from each item's detail page (for hover preview)
@@ -15,6 +15,7 @@ BASE = "https://supremedroplist.com"
 OUT = Path(__file__).resolve().parent.parent / "data" / "data.json"
 
 SEASON_FALLBACK = "springsummer-2026"  # used only if auto-detect fails
+SEASON_SUFFIX = "ss26"  # 상품 주소 꼬리 - set_season_suffix() 가 시즌에서 정한다
 
 
 def detect_season():
@@ -100,8 +101,21 @@ IMG_RE = re.compile(r'(https://supremedroplist\.com/images/item-images/media/[^\
 ANCHOR_RE = re.compile(r'href="(/items/[^"]+-ss26)"')
 
 
+def set_season_suffix(sfx):
+    """상품 주소 꼬리를 시즌에 맞춘다.
+
+    [실패 2026-08-20 ~ 09-02 · 13일 동안 매번 `scraped 0 items`]
+    시즌이 26SS -> 26FW 로 넘어갔는데 꼬리 `-ss26` 이 코드에 박혀 있어
+    상품 링크를 한 건도 못 잡았다. 시즌 감지(detect_season)는 잘 되고 있었다.
+    실측 2026-09-02 : /items/supreme-nike-air-max-2001-air-ecstasy-fw26
+    """
+    global SEASON_SUFFIX, ANCHOR_RE
+    SEASON_SUFFIX = sfx
+    ANCHOR_RE = re.compile(r'href="(/items/[^"]+-' + re.escape(sfx) + r')"')
+
+
 def slug_from_url(url):
-    m = re.search(r'/items/([^"/]+)-ss26', url)
+    m = re.search(r'/items/([^"/]+)-' + re.escape(SEASON_SUFFIX), url)
     return m.group(1) if m else ""
 
 
@@ -129,7 +143,7 @@ def parse_page_cards(htmltext):
         else:
             pm = re.search(r'line-clamp-2[^>]*>\s*([^<]+?)\s*</p>', block)
             name = html.unescape(pm.group(1)).strip() if pm else ""
-        if not name or name.lower().startswith("spring/summer"):
+        if not name or re.match(r'(spring/summer|fall/winter)', name.lower()):
             continue
         im = IMG_RE.search(block)
         if not im:
@@ -146,7 +160,7 @@ def parse_page_cards(htmltext):
 def detail_images(slug, fallback_img):
     """Pull all images belonging to this item from its detail page (for hover)."""
     try:
-        h = fetch(f"{BASE}/items/{slug}-ss26")
+        h = fetch(f"{BASE}/items/{slug}-{SEASON_SUFFIX}")
     except Exception:
         return [fallback_img]
     key = slug.replace("-", "")[:20]
@@ -163,6 +177,7 @@ def detail_images(slug, fallback_img):
 
 def scrape(with_detail_images=True, max_detail_workers=8):
     season, kream_tag, season_label = detect_season()
+    set_season_suffix(("ss" if season.startswith("springsummer") else "fw") + season[-2:])
 
     # 1) unreleased
     ltd_raw = fetch(f"{BASE}/season/{season}/left-to-drop")
